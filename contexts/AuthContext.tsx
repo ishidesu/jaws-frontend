@@ -29,15 +29,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('Token expiring soon, refreshing...')
         const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
         
-        if (refreshError) {
+        if (refreshError && refreshError.message !== 'signal is aborted without reason') {
           console.error('Token refresh failed:', refreshError)
         }
       }
       
       const currentUser = await getCurrentUser()
       setUser(currentUser)
-    } catch (error) {
-      console.error('Error refreshing user:', error)
+    } catch (error: any) {
+      // Ignore AbortError as it's usually from cancelled requests
+      if (error?.name !== 'AbortError' && !error?.message?.includes('aborted')) {
+        console.error('Error refreshing user:', error)
+      }
       setUser(null)
     } finally {
       setLoading(false)
@@ -67,13 +70,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Set up periodic token refresh check
     const tokenCheckInterval = setInterval(async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (session && session.expires_at! * 1000 < Date.now() + 300000) { // Refresh 5 minutes before expiry
-        console.log('Periodic token refresh check - refreshing token')
-        const { error } = await supabase.auth.refreshSession()
-        if (error) {
-          console.error('Periodic token refresh failed:', error)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (session && session.expires_at! * 1000 < Date.now() + 300000) { // Refresh 5 minutes before expiry
+          console.log('Periodic token refresh check - refreshing token')
+          const { error } = await supabase.auth.refreshSession()
+          if (error && error.message !== 'signal is aborted without reason') {
+            console.error('Periodic token refresh failed:', error)
+          }
+        }
+      } catch (error: any) {
+        // Ignore AbortError and similar cancellation errors
+        if (error?.name !== 'AbortError' && !error?.message?.includes('aborted')) {
+          console.error('Periodic token check error:', error)
         }
       }
     }, 60000) // Check every minute

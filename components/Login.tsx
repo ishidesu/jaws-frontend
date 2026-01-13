@@ -51,13 +51,20 @@ export default function Login() {
             const result = await loginUser(formData);
             
             if (result.success) {
+                // Wait a bit before refreshing user to avoid race conditions
+                await new Promise(resolve => setTimeout(resolve, 500));
                 await refreshUser();
                 router.push("/");
             } else {
                 setError(result.error || "Login failed");
             }
         } catch (error: any) {
-            setError(error.message || "An unexpected error occurred");
+            // Handle AbortError specifically
+            if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+                setError("Login request was cancelled. Please try again.");
+            } else {
+                setError(error.message || "An unexpected error occurred");
+            }
         } finally {
             setLoading(false);
         }

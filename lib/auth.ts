@@ -144,31 +144,75 @@ export async function loginUser(data: LoginData) {
       password: data.password,
     })
 
-    if (authError) throw authError
+    if (authError) {
+      // Handle specific auth errors
+      if (authError.message === 'signal is aborted without reason') {
+        return { success: false, error: 'Login request was cancelled. Please try again.' }
+      }
+      throw authError
+    }
 
     if (!authData.user) {
       throw new Error('Login failed')
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', authData.user.id)
-      .single()
+    // Get user profile with retry logic
+    let retryCount = 0
+    const maxRetries = 3
+    
+    while (retryCount < maxRetries) {
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authData.user.id)
+          .single()
 
-    if (profileError) throw profileError
+        if (profileError) {
+          if (profileError.message === 'signal is aborted without reason') {
+            retryCount++
+            if (retryCount >= maxRetries) {
+              return { success: false, error: 'Unable to load user profile. Please try again.' }
+            }
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+            continue
+          }
+          throw profileError
+        }
 
-    return { 
-      success: true, 
-      user: {
-        id: profile.id,
-        email: profile.email,
-        username: profile.username,
-        role: profile.role
-      } as AuthUser
+        return { 
+          success: true, 
+          user: {
+            id: profile.id,
+            email: profile.email,
+            username: profile.username,
+            role: profile.role
+          } as AuthUser
+        }
+      } catch (error: any) {
+        retryCount++
+        
+        // Don't retry on AbortError
+        if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+          return { success: false, error: 'Login request was cancelled. Please try again.' }
+        }
+        
+        if (retryCount >= maxRetries) {
+          throw error
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+      }
     }
+
+    throw new Error('Failed to load user profile after multiple attempts')
   } catch (error: any) {
-    return { success: false, error: error.message }
+    // Handle AbortError gracefully
+    if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+      return { success: false, error: 'Login request was cancelled. Please try again.' }
+    }
+    
+    return { success: false, error: error.message || 'Login failed' }
   }
 }
 
@@ -229,13 +273,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
-    if (sessionError) {
+    if (sessionError && sessionError.message !== 'signal is aborted without reason') {
       console.error('Session error:', sessionError)
       return null
     }
     
     if (!session || !session.user) {
-      console.log('No active session found')
       return null
     }
     
@@ -243,7 +286,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       console.log('Token expired, attempting refresh...')
       const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
       
-      if (refreshError || !refreshData.session) {
+      if (refreshError && refreshError.message !== 'signal is aborted without reason') {
         console.error('Token refresh failed:', refreshError)
         return null
       }
@@ -251,10 +294,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     
-    if (userError || !user) {
+    if (userError && userError.message !== 'signal is aborted without reason') {
       console.error('Get user error:', userError)
       return null
     }
+    
+    if (!user) return null
 
     let retryCount = 0
     const maxRetries = 3
@@ -283,6 +328,12 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         }
       } catch (error: any) {
         retryCount++
+        
+        // Don't retry on AbortError
+        if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+          return null
+        }
+        
         console.error(`Profile fetch attempt ${retryCount} failed:`, error)
         
         if (retryCount >= maxRetries) {
@@ -296,7 +347,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     
     return null
   } catch (error: any) {
-    console.error('getCurrentUser error:', error)
+    // Ignore AbortError as it's usually from cancelled requests
+    if (error?.name !== 'AbortError' && !error?.message?.includes('aborted')) {
+      console.error('getCurrentUser error:', error)
+    }
     return null
   }
 }

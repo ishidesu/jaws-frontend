@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../contexts/AuthContext";
-import DifyChatbot from "../components/DifyChatbot";
+import DifyChatbotManual from "../components/DifyChatbotManual";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -25,7 +25,7 @@ export default function RootLayout({
       <body className={poppins.className}>
         <AuthProvider>
           {children}
-          <DifyChatbot />
+          <DifyChatbotManual />
         </AuthProvider>
       </body>
     </html>
