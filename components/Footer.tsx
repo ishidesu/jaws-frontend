@@ -1,6 +1,6 @@
 import Image from "next/image"
 import Link from "next/link"
-import logo from "../assets/Jaws-logo.png"
+import { getAsset } from "../utils/assets";
 
 export default function Footer() {
     return(
@@ -10,9 +10,11 @@ export default function Footer() {
                 {/* LOGO */}
                 <div className="flex justify-center md:justify-start -ml-20 -mt-10">
                     <Image 
-                        src={logo} 
+                        src={getAsset("assets/Jaws-logo.png")}
                         alt="Logo" 
                         className="w-[350px] h-auto"
+                        width={80}
+                        height={64}
                     />
                 </div>
 

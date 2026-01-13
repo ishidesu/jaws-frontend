@@ -1,9 +1,68 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
-import bg from "../assets/user register & crew login/login-bgimage.jpg";
-import logo from "../assets/Jaws-logo.png";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getAsset } from "../utils/assets";
+import { loginUser } from "../lib/auth";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Login() {
+    const [formData, setFormData] = useState({
+        email: "",
+        password: ""
+    });
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [message, setMessage] = useState("");
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const { refreshUser } = useAuth();
+
+    useEffect(() => {
+        const urlMessage = searchParams.get('message');
+        if (urlMessage) {
+            setMessage(urlMessage);
+        }
+    }, [searchParams]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setFormData({
+            ...formData,
+            [e.target.name]: e.target.value
+        });
+        setError("");
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError("");
+        setMessage("");
+
+        if (!formData.email || !formData.password) {
+            setError("Email and password are required");
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const result = await loginUser(formData);
+            
+            if (result.success) {
+                await refreshUser();
+                router.push("/");
+            } else {
+                setError(result.error || "Login failed");
+            }
+        } catch (error: any) {
+            setError(error.message || "An unexpected error occurred");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="relative w-full min-h-screen">
 
@@ -11,7 +70,7 @@ export default function Login() {
             <div className="absolute inset-0 -z-10">
                 <div className="relative w-full h-full">
                     <Image
-                        src={bg}
+                        src={getAsset("assets/login/login-bgimage.jpg")}
                         alt="Background"
                         fill
                         className="object-cover"
@@ -27,8 +86,10 @@ export default function Login() {
                 <Link href="/">
                     <Image
                         className="w-20 h-16 cursor-pointer"
-                        src={logo}
+                        src={getAsset("assets/Jaws-logo.png")}
                         alt="Jaws Logo"
+                        width={80}
+                        height={64}
                     />
                 </Link>
             </div>
@@ -45,24 +106,50 @@ export default function Login() {
                         CUSTOM.
                     </h2>
 
+                    {/* Success Message */}
+                    {message && (
+                        <div className="w-full mb-4 p-3 bg-green-500/20 border border-green-500 rounded-md">
+                            <p className="text-green-200 text-sm text-center">{message}</p>
+                        </div>
+                    )}
+
+                    {/* Error Message */}
+                    {error && (
+                        <div className="w-full mb-4 p-3 bg-red-500/20 border border-red-500 rounded-md">
+                            <p className="text-red-200 text-sm text-center">{error}</p>
+                        </div>
+                    )}
+
                     {/* Input Form */}
-                    <div className="w-full flex flex-col space-y-4">
+                    <form onSubmit={handleSubmit} className="w-full flex flex-col space-y-4">
                         <input
-                            type="text"
-                            placeholder="Username"
-                            className="w-full px-4 py-3 rounded-md bg-white/90 text-black placeholder-gray-600 focus:outline-none"
+                            type="email"
+                            name="email"
+                            placeholder="Email"
+                            value={formData.email}
+                            onChange={handleChange}
+                            disabled={loading}
+                            className="w-full px-4 py-3 rounded-md bg-white/90 text-black placeholder-gray-600 focus:outline-none disabled:opacity-50"
                         />
                         <input
                             type="password"
+                            name="password"
                             placeholder="Password"
-                            className="w-full px-4 py-3 rounded-md bg-white/90 text-black placeholder-gray-600 focus:outline-none"
+                            value={formData.password}
+                            onChange={handleChange}
+                            disabled={loading}
+                            className="w-full px-4 py-3 rounded-md bg-white/90 text-black placeholder-gray-600 focus:outline-none disabled:opacity-50"
                         />
-                    </div>
 
-                    {/* Button */}
-                    <button className="mt-6 w-auto pl-5 pr-5 py-3 bg-gray-300 hover:bg-gray-400 text-black rounded-full transition font-medium">
-                        Login
-                    </button>
+                        {/* Button */}
+                        <button 
+                            type="submit"
+                            disabled={loading}
+                            className="mt-6 w-auto pl-5 pr-5 py-3 bg-gray-300 hover:bg-gray-400 text-black rounded-full transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? "Logging in..." : "Login"}
+                        </button>
+                    </form>
 
                     {/* Register Link */}
                     <Link href="/register" className="mt-4 text-sm text-white/80 hover:text-white cursor-pointer">
@@ -70,9 +157,9 @@ export default function Login() {
                     </Link>
 
                     {/* Crew Link */}
-                    <Link href="/crewlogin" className="mt-4 text-sm text-white/80 hover:text-white cursor-pointer">
+                    {/* <Link href="/crewlogin" className="mt-4 text-sm text-white/80 hover:text-white cursor-pointer">
                         Login with Crew account.
-                    </Link>
+                    </Link> */}
                 </div>
             </div>
 

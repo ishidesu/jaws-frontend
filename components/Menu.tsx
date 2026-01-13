@@ -1,12 +1,6 @@
 import Link from "next/link"
 import Image from "next/image"
-import img1 from "../assets/home/bengkel.webp"
-import img2 from "../assets/home/gugu.webp"
-import chopper from "../assets/home/chopper.webp"
-import tracker from "../assets/home/tracker.webp"
-import chicano from "../assets/home/CICANO.webp"
-import fatboy from "../assets/home/BIG BACK.webp"
-import caferacer from "../assets/home/CAPERESER.webp"
+import { getAsset } from "../utils/assets";
 
 export default function Menu() {
     return (
@@ -14,7 +8,7 @@ export default function Menu() {
             <div className="relative w-full h-[550px] md:h-[620px] flex items-center justify-center overflow-hidden">
                 {/* Background Image */}
                 <Image
-                    src={img1}
+                    src={getAsset("assets/home/bengkel.webp")}
                     alt=""
                     fill
                     priority
@@ -59,7 +53,7 @@ export default function Menu() {
                 {/* LEFT IMAGE – CHOPPER */}
                 <div className="relative w-full h-[450px] md:h-[600px] overflow-hidden group rounded">
                     <Image
-                        src={chopper}
+                        src={getAsset("assets/home/chopper.webp")}
                         alt="Chopper"
                         fill
                         className="object-cover object-center group-hover:scale-105 transition duration-300"
@@ -76,7 +70,7 @@ export default function Menu() {
                 {/* RIGHT IMAGE – TRACKER */}
                 <div className="relative w-full h-[450px] md:h-[600px] overflow-hidden group rounded">
                 <Image
-                    src={tracker}
+                    src={getAsset("assets/home/tracker.webp")}
                     alt="Tracker"
                     fill
                     className="object-cover object-center group-hover:scale-105 transition duration-300"
@@ -104,7 +98,7 @@ export default function Menu() {
                 {/* LEFT IMAGE – CHICANO */}
                 <div className="relative w-full h-[450px] md:h-[600px] overflow-hidden group rounded">
                     <Image
-                        src={chicano}
+                        src={getAsset("assets/home/CICANO.webp")}
                         alt="Chicano"
                         fill
                         className="object-cover object-center group-hover:scale-105 transition duration-300"
@@ -121,7 +115,7 @@ export default function Menu() {
                 {/* MIDDLE IMAGE – FAT BOY */}
                 <div className="relative w-full h-[450px] md:h-[600px] overflow-hidden group rounded">
                 <Image
-                    src={fatboy}
+                    src={getAsset("assets/home/BIGBACK.webp")}
                     alt="Fat Boy"
                     fill
                     className="object-cover object-center group-hover:scale-105 transition duration-300"
@@ -138,7 +132,7 @@ export default function Menu() {
                 {/* RIGHT IMAGE – CAFERACER */}
                 <div className="relative w-full h-[450px] md:h-[600px] overflow-hidden group rounded">
                 <Image
-                    src={caferacer}
+                    src={getAsset("assets/home/CAPERESER.webp")}
                     alt="Caferacer"
                     fill
                     className="object-cover object-center group-hover:scale-105 transition duration-300"
@@ -157,7 +151,7 @@ export default function Menu() {
             <div className="relative w-full h-[550px] md:h-[620px] flex items-center justify-center overflow-hidden">
                 {/* Background Image */}
                 <Image
-                    src={img2}
+                    src={getAsset("assets/home/gugu.webp")}
                     alt=""
                     fill
                     priority
