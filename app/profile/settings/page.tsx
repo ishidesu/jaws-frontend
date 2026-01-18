@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import Navbar from "../../../components/Navbar";
 import Footer from "../../../components/Footer";
 import { supabase } from '../../../lib/supabase';
+import { useAuth } from '../../../contexts/AuthContext';
 
 export default function SettingsPage() {
     const router = useRouter();
+    const { refreshUser } = useAuth(); // Add this
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [username, setUsername] = useState('');
@@ -102,6 +104,9 @@ export default function SettingsPage() {
                 .eq('id', user.id);
 
             if (updateError) throw updateError;
+
+            // Refresh user data di AuthContext
+            await refreshUser();
 
             setMessage('Username berhasil diperbarui!');
             setTimeout(() => setMessage(''), 3000);

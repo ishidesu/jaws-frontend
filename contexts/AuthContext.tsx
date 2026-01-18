@@ -39,6 +39,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     console.log('[AuthContext] Starting user refresh...')
     
+    // Clear cache untuk force fetch data terbaru
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('jaws-cached-user')
+      localStorage.removeItem('jaws-cached-user-time')
+      console.log('[AuthContext] Cache cleared')
+    }
+    
     try {
       const currentUser = await getCurrentUser()
       console.log('[AuthContext] User fetched:', currentUser ? `${currentUser.username} (${currentUser.email})` : 'null')
