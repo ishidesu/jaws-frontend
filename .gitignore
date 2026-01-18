@@ -44,6 +44,7 @@ next-env.d.ts
 /supabase/migrations/
 /supabase/config.toml
 /supabase/seed.sql
+/supabase/email-templates/
 
 # Documentation files (internal use only)
 *.md

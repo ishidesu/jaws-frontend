@@ -37,18 +37,38 @@ export default function CrewLogin() {
             return;
         }
 
+        // Add timeout to prevent stuck loading
+        const loginTimeout = setTimeout(() => {
+            setError("Login is taking too long. Please check your connection and try again.");
+            setLoading(false);
+        }, 20000); // 20 second timeout
+
         try {
             const result = await crewLogin(formData);
             
+            clearTimeout(loginTimeout); // Clear timeout if login completes
+            
             if (result.success) {
                 await refreshUser();
-                router.push("/");
+                
+                // Add a small delay to ensure state is updated
+                setTimeout(() => {
+                    router.push("/");
+                }, 100);
             } else {
                 setError(result.error || "Crew login failed");
+                setLoading(false);
             }
         } catch (error: any) {
-            setError(error.message || "An unexpected error occurred");
-        } finally {
+            clearTimeout(loginTimeout); // Clear timeout on error
+            
+            if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+                setError("Login request was cancelled. Please try again.");
+            } else if (error?.message?.includes('timeout')) {
+                setError("Login request timeout. Please check your connection.");
+            } else {
+                setError(error.message || "An unexpected error occurred");
+            }
             setLoading(false);
         }
     };

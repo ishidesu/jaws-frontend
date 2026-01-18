@@ -30,6 +30,7 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
     const [quantity, setQuantity] = useState(1);
     const [isAddingToCart, setIsAddingToCart] = useState(false);
     const [isAddingToWishlist, setIsAddingToWishlist] = useState(false);
+    const [isInWishlist, setIsInWishlist] = useState(false);
     const isMountedRef = useRef(true);
     const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -58,6 +59,9 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
             }
 
             setProduct(data);
+            
+            // Check if product is in wishlist
+            await checkWishlistStatus();
         } catch (error) {
             if (!isMountedRef.current) return;
             console.error('Error fetching product:', error);
@@ -66,6 +70,28 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
             if (isMountedRef.current) {
                 setIsLoading(false);
             }
+        }
+    };
+
+    const checkWishlistStatus = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const { data, error } = await supabase
+                .from('wishlist')
+                .select('id')
+                .eq('user_id', user.id)
+                .eq('product_id', productId)
+                .single();
+
+            if (!error && data) {
+                setIsInWishlist(true);
+            } else {
+                setIsInWishlist(false);
+            }
+        } catch (error) {
+            console.error('Error checking wishlist:', error);
         }
     };
 
@@ -189,14 +215,51 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
         
         setIsAddingToWishlist(true);
         try {
-            console.log(`Adding ${product.name} to wishlist`);
+            const { data: { user } } = await supabase.auth.getUser();
             
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            alert(`Added ${product.name} to wishlist!`);
+            if (!user) {
+                alert('Please login to add items to wishlist');
+                router.push('/login');
+                return;
+            }
+
+            if (isInWishlist) {
+                // Remove from wishlist
+                const { error } = await supabase
+                    .from('wishlist')
+                    .delete()
+                    .eq('user_id', user.id)
+                    .eq('product_id', product.id);
+
+                if (error) throw error;
+                
+                setIsInWishlist(false);
+                alert(`Removed ${product.name} from wishlist`);
+            } else {
+                // Add to wishlist
+                const { error } = await supabase
+                    .from('wishlist')
+                    .insert({
+                        user_id: user.id,
+                        product_id: product.id
+                    });
+
+                if (error) {
+                    // Check if already exists
+                    if (error.code === '23505') {
+                        alert('Product already in wishlist');
+                        setIsInWishlist(true);
+                        return;
+                    }
+                    throw error;
+                }
+                
+                setIsInWishlist(true);
+                alert(`Added ${product.name} to wishlist!`);
+            }
         } catch (error) {
-            console.error('Error adding to wishlist:', error);
-            alert('Failed to add to wishlist');
+            console.error('Error managing wishlist:', error);
+            alert('Failed to update wishlist. Please try again.');
         } finally {
             setIsAddingToWishlist(false);
         }
@@ -320,9 +383,18 @@ export default function ProductDetail({ productId }: ProductDetailProps) {
                             <button
                                 onClick={handleAddToWishlist}
                                 disabled={isAddingToWishlist}
-                                className="w-full py-4 bg-red-500 text-white rounded-full font-medium hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className={`w-full py-4 rounded-full font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                    isInWishlist 
+                                        ? 'bg-gray-700 text-white hover:bg-gray-600' 
+                                        : 'bg-red-500 text-white hover:bg-red-600'
+                                }`}
                             >
-                                {isAddingToWishlist ? 'Adding...' : 'Add to Wishlist'}
+                                {isAddingToWishlist 
+                                    ? 'Processing...' 
+                                    : isInWishlist 
+                                        ? '❤️ Remove from Wishlist' 
+                                        : '🤍 Add to Wishlist'
+                                }
                             </button>
                         </div>
                     </div>

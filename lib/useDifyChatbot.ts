@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface DifyChatbotConfig {
   token: string;
+  baseUrl?: string;
   inputs?: Record<string, any>;
   systemVariables?: {
     user_id?: string;
@@ -16,24 +17,25 @@ interface DifyChatbotConfig {
 
 export function useDifyChatbot() {
   const { user } = useAuth();
-  const chatbotToken = process.env.NEXT_PUBLIC_DIFY_CHATBOT_TOKEN;
+  const apiKey = process.env.NEXT_PUBLIC_DIFY_API_KEY;
+  const apiServer = process.env.NEXT_PUBLIC_DIFY_API_SERVER || 'https://api.dify.ai/v1';
 
   const initializeChatbot = useCallback(() => {
-    if (!chatbotToken) {
-      console.warn('Dify chatbot token not configured');
+    if (!apiKey) {
+      console.warn('Dify API key not configured');
       return false;
     }
 
     try {
       const config: DifyChatbotConfig = {
-        token: chatbotToken,
-        inputs: {
-        },
+        token: apiKey,
+        baseUrl: apiServer,
+        inputs: {},
         systemVariables: {
-          user_id: user?.id,
+          user_id: user?.id || '',
         },
         userVariables: {
-          name: user?.username,
+          name: user?.username || 'Guest',
         },
       };
 
@@ -44,25 +46,21 @@ export function useDifyChatbot() {
       console.error('Failed to initialize chatbot config:', error);
       return false;
     }
-  }, [chatbotToken, user]);
+  }, [apiKey, apiServer, user]);
 
   const loadChatbotScript = useCallback(() => {
-    if (!chatbotToken || document.getElementById(chatbotToken)) {
+    if (!apiKey || document.getElementById('dify-chatbot-script')) {
       return;
     }
 
     try {
       const script = document.createElement('script');
       script.src = 'https://udify.app/embed.min.js';
-      script.id = chatbotToken;
+      script.id = 'dify-chatbot-script';
       script.defer = true;
-      script.crossOrigin = 'anonymous';
       
-      // Add error handling
-      script.onerror = (error) => {
-        console.warn('Dify chatbot script failed to load. This may be due to network issues or CORS policy.');
-        // Remove the failed script
-        script.remove();
+      script.onerror = () => {
+        console.error('Dify chatbot script failed to load');
       };
       
       script.onload = () => {
@@ -73,7 +71,7 @@ export function useDifyChatbot() {
     } catch (error) {
       console.warn('Failed to create chatbot script:', error);
     }
-  }, [chatbotToken]);
+  }, [apiKey]);
 
   const addChatbotStyles = useCallback(() => {
     if (document.querySelector('style[data-dify-chatbot]')) {
@@ -86,10 +84,22 @@ export function useDifyChatbot() {
       style.textContent = `
         #dify-chatbot-bubble-button {
           background-color: #1C64F2 !important;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+        }
+        #dify-chatbot-bubble-button:hover {
+          background-color: #1557d8 !important;
         }
         #dify-chatbot-bubble-window {
           width: 24rem !important;
           height: 40rem !important;
+          max-height: 90vh !important;
+        }
+        @media (max-width: 640px) {
+          #dify-chatbot-bubble-window {
+            width: 100vw !important;
+            height: 100vh !important;
+            max-height: 100vh !important;
+          }
         }
       `;
       
@@ -107,29 +117,21 @@ export function useDifyChatbot() {
   }, [initializeChatbot, loadChatbotScript, addChatbotStyles]);
 
   const cleanupChatbot = useCallback(() => {
+    // Note: Intentionally minimal cleanup to keep chatbot persistent
+    // Only cleanup config, not the script itself
     try {
-      const script = document.getElementById(chatbotToken || '');
-      if (script) {
-        script.remove();
-      }
-
-      const style = document.querySelector('style[data-dify-chatbot]');
-      if (style) {
-        style.remove();
-      }
-
       if ((window as any).difyChatbotConfig) {
         delete (window as any).difyChatbotConfig;
       }
     } catch (error) {
       console.error('Failed to cleanup chatbot:', error);
     }
-  }, [chatbotToken]);
+  }, []);
 
   return {
     setupChatbot,
     cleanupChatbot,
-    isConfigured: !!chatbotToken,
+    isConfigured: !!apiKey,
     user,
   };
 }

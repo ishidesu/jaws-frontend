@@ -139,10 +139,20 @@ export async function registerUser(data: RegisterData) {
 
 export async function loginUser(data: LoginData) {
   try {
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    // Add timeout to prevent stuck requests
+    const loginPromise = supabase.auth.signInWithPassword({
       email: data.email,
       password: data.password,
     })
+
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Login request timeout. Please check your connection.')), 15000)
+    )
+
+    const { data: authData, error: authError } = await Promise.race([
+      loginPromise,
+      timeoutPromise
+    ]) as any
 
     if (authError) {
       // Handle specific auth errors
@@ -152,24 +162,44 @@ export async function loginUser(data: LoginData) {
       throw authError
     }
 
-    if (!authData.user) {
-      throw new Error('Login failed')
+    if (!authData.user || !authData.session) {
+      throw new Error('Login failed - no session created')
     }
 
-    // Get user profile with retry logic
+    // Verify session is valid and not expired
+    const expiresAt = authData.session.expires_at
+    if (expiresAt && expiresAt * 1000 < Date.now()) {
+      console.log('Session expired immediately, refreshing...')
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+      if (refreshError) {
+        throw new Error('Failed to refresh session after login')
+      }
+    }
+
+    // Get user profile with retry logic and timeout
     let retryCount = 0
     const maxRetries = 3
     
     while (retryCount < maxRetries) {
       try {
-        const { data: profile, error: profileError } = await supabase
+        const profilePromise = supabase
           .from('profiles')
           .select('*')
           .eq('id', authData.user.id)
           .single()
 
+        const profileTimeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
+        )
+
+        const { data: profile, error: profileError } = await Promise.race([
+          profilePromise,
+          profileTimeoutPromise
+        ]) as any
+
         if (profileError) {
-          if (profileError.message === 'signal is aborted without reason') {
+          if (profileError.message === 'signal is aborted without reason' || 
+              profileError.message === 'Profile fetch timeout') {
             retryCount++
             if (retryCount >= maxRetries) {
               return { success: false, error: 'Unable to load user profile. Please try again.' }
@@ -187,7 +217,8 @@ export async function loginUser(data: LoginData) {
             email: profile.email,
             username: profile.username,
             role: profile.role
-          } as AuthUser
+          } as AuthUser,
+          session: authData.session
         }
       } catch (error: any) {
         retryCount++
@@ -210,6 +241,11 @@ export async function loginUser(data: LoginData) {
     // Handle AbortError gracefully
     if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
       return { success: false, error: 'Login request was cancelled. Please try again.' }
+    }
+    
+    // Handle timeout errors
+    if (error?.message?.includes('timeout')) {
+      return { success: false, error: error.message }
     }
     
     return { success: false, error: error.message || 'Login failed' }
@@ -237,10 +273,35 @@ export async function crewLogin(data: LoginData) {
 
 export async function logoutUser() {
   try {
+    // Sign out from Supabase
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+    
+    // Force clear all local storage related to auth
+    if (typeof window !== 'undefined') {
+      // Clear Supabase auth tokens
+      const keys = Object.keys(localStorage)
+      keys.forEach(key => {
+        if (key.startsWith('sb-') || key.includes('supabase')) {
+          localStorage.removeItem(key)
+        }
+      })
+    }
+    
     return { success: true }
   } catch (error: any) {
+    console.error('Logout error:', error)
+    
+    // Even if logout fails, clear local storage
+    if (typeof window !== 'undefined') {
+      const keys = Object.keys(localStorage)
+      keys.forEach(key => {
+        if (key.startsWith('sb-') || key.includes('supabase')) {
+          localStorage.removeItem(key)
+        }
+      })
+    }
+    
     return { success: false, error: error.message }
   }
 }
@@ -271,86 +332,156 @@ export async function registerUserSmart(data: RegisterData & { otp?: string }) {
 }
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
+    console.log('[getCurrentUser] Fetching session...')
+    
+    // Try cached user first for instant load
+    if (typeof window !== 'undefined') {
+      const cachedUser = localStorage.getItem('jaws-cached-user')
+      const cacheTime = localStorage.getItem('jaws-cached-user-time')
+      
+      if (cachedUser && cacheTime) {
+        const age = Date.now() - parseInt(cacheTime)
+        // Use cache if less than 5 minutes old
+        if (age < 5 * 60 * 1000) {
+          try {
+            const parsed = JSON.parse(cachedUser)
+            console.log('[getCurrentUser] Using cached user (age: ' + Math.round(age/1000) + 's):', parsed.username)
+            return parsed
+          } catch (e) {
+            console.warn('Failed to parse cached user')
+          }
+        }
+      }
+    }
+    
     const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
-    if (sessionError && sessionError.message !== 'signal is aborted without reason') {
+    console.log('[getCurrentUser] Session result:', session ? 'Found' : 'None', sessionError ? `Error: ${sessionError.message}` : '')
+    
+    if (sessionError) {
       console.error('Session error:', sessionError)
       return null
     }
     
     if (!session || !session.user) {
-      return null
-    }
-    
-    if (session.expires_at! * 1000 < Date.now()) {
-      console.log('Token expired, attempting refresh...')
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-      
-      if (refreshError && refreshError.message !== 'signal is aborted without reason') {
-        console.error('Token refresh failed:', refreshError)
-        return null
+      // Clear cached user if no session
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('jaws-cached-user')
+        localStorage.removeItem('jaws-cached-user-time')
       }
-    }
-    
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    
-    if (userError && userError.message !== 'signal is aborted without reason') {
-      console.error('Get user error:', userError)
       return null
     }
     
-    if (!user) return null
-
-    let retryCount = 0
-    const maxRetries = 3
+    const user = session.user
     
-    while (retryCount < maxRetries) {
-      try {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
+    console.log('[getCurrentUser] Fetching profile for user:', user.id)
 
-        if (profileError) {
-          if (profileError.code === 'PGRST116') {
-            console.error('Profile not found for user:', user.id)
-            return null
+    // Try to get profile from database
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+      console.log('[getCurrentUser] Profile result:', profile ? 'Found' : 'None', profileError ? `Error: ${profileError.message}` : '')
+
+      if (profileError) {
+        if (profileError.code === 'PGRST116') {
+          console.warn('Profile not found, creating...')
+          // Try to create profile
+          const newProfile = {
+            id: user.id,
+            email: user.email || '',
+            username: user.email?.split('@')[0] || 'User',
+            role: 'user' as const
           }
-          throw profileError
-        }
-
-        return {
-          id: profile.id,
-          email: profile.email,
-          username: profile.username,
-          role: profile.role
-        }
-      } catch (error: any) {
-        retryCount++
-        
-        // Don't retry on AbortError
-        if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
-          return null
+          
+          await supabase.from('profiles').insert(newProfile)
+          
+          // Cache and return
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('jaws-cached-user', JSON.stringify(newProfile))
+            localStorage.setItem('jaws-cached-user-time', Date.now().toString())
+          }
+          return newProfile
         }
         
-        console.error(`Profile fetch attempt ${retryCount} failed:`, error)
-        
-        if (retryCount >= maxRetries) {
-          console.error('Max retries reached for profile fetch')
-          return null
+        // Return basic user from session and cache it
+        console.log('[getCurrentUser] Using session data as fallback')
+        const fallbackUser = {
+          id: user.id,
+          email: user.email || '',
+          username: user.email?.split('@')[0] || 'User',
+          role: 'user' as const
         }
         
-        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount))
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('jaws-cached-user', JSON.stringify(fallbackUser))
+          localStorage.setItem('jaws-cached-user-time', Date.now().toString())
+        }
+        
+        return fallbackUser
       }
+
+      const userProfile = {
+        id: profile.id,
+        email: profile.email,
+        username: profile.username,
+        role: profile.role
+      }
+      
+      // Cache successful profile fetch with timestamp
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('jaws-cached-user', JSON.stringify(userProfile))
+        localStorage.setItem('jaws-cached-user-time', Date.now().toString())
+      }
+      
+      console.log('[getCurrentUser] Success:', profile.username)
+      return userProfile
+    } catch (error: any) {
+      // If profile fetch fails, use session data
+      console.warn('[getCurrentUser] Profile fetch failed, using session data:', error.message)
+      const fallbackUser = {
+        id: user.id,
+        email: user.email || '',
+        username: user.email?.split('@')[0] || 'User',
+        role: 'user' as const
+      }
+      
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('jaws-cached-user', JSON.stringify(fallbackUser))
+        localStorage.setItem('jaws-cached-user-time', Date.now().toString())
+      }
+      
+      return fallbackUser
     }
-    
-    return null
   } catch (error: any) {
-    // Ignore AbortError as it's usually from cancelled requests
-    if (error?.name !== 'AbortError' && !error?.message?.includes('aborted')) {
-      console.error('getCurrentUser error:', error)
-    }
+    console.error('[getCurrentUser] Fatal error:', error)
     return null
+  }
+}
+
+// Background profile fetch to update cache (not used anymore, kept for compatibility)
+async function fetchAndCacheProfile(userId: string) {
+  try {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    
+    if (profile && typeof window !== 'undefined') {
+      localStorage.setItem('jaws-cached-user', JSON.stringify({
+        id: profile.id,
+        email: profile.email,
+        username: profile.username,
+        role: profile.role
+      }))
+      localStorage.setItem('jaws-cached-user-time', Date.now().toString())
+      console.log('[Background] Profile cache updated')
+    }
+  } catch (error) {
+    console.warn('[Background] Profile fetch failed, keeping cache')
   }
 }

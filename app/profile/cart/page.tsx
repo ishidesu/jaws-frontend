@@ -379,7 +379,8 @@ export default function CartPage() {
                                 <div className="space-y-4">
                                     {cartItems.map((item) => (
                                         <div key={item.id} className="border-b border-gray-600 pb-6">
-                                            <div className="flex items-center gap-6">
+                                            {/* Desktop Layout */}
+                                            <div className="hidden md:flex items-center gap-6">
                                                 {/* Product Image */}
                                                 <div className="w-32 h-32 bg-white rounded flex items-center justify-center overflow-hidden flex-shrink-0">
                                                     <OptimizedImage
@@ -477,6 +478,111 @@ export default function CartPage() {
                                                     <p className="text-white font-bold text-lg">
                                                         IDR {formatPrice(getItemSubtotal(item.product.price, item.quantity))}
                                                     </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Mobile Layout */}
+                                            <div className="flex md:hidden gap-3">
+                                                {/* Product Image - Smaller */}
+                                                <div className="w-24 h-24 bg-white rounded flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                    <OptimizedImage
+                                                        src={transformImageUrl(item.product.image_url)}
+                                                        alt={item.product.name}
+                                                        aspectRatio="aspect-square"
+                                                        className="max-w-full max-h-full object-contain"
+                                                        fallback={
+                                                            <div className="flex flex-col items-center justify-center text-gray-400 h-full">
+                                                                <div className="w-6 h-6 border-2 border-gray-300 rounded-full flex items-center justify-center mb-1">
+                                                                    <span className="text-sm">+</span>
+                                                                </div>
+                                                                <p className="text-xs">No Image</p>
+                                                            </div>
+                                                        }
+                                                    />
+                                                </div>
+
+                                                {/* Product Info */}
+                                                <div className="flex-1 min-w-0">
+                                                    {/* Name and Quantity Controls in Same Row */}
+                                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                                        <h3 className="text-white font-bold text-sm uppercase tracking-wide flex-1 min-w-0">
+                                                            {item.product.name}
+                                                        </h3>
+                                                        
+                                                        {/* Quantity Controls - Compact */}
+                                                        {item.product.stock > 0 ? (
+                                                            <div className="flex items-center bg-white rounded-full px-2 py-1 flex-shrink-0">
+                                                                <button
+                                                                    onClick={() => updateQuantity(item.id, item.quantity - 1, item.product.stock)}
+                                                                    disabled={updating === item.id || item.quantity <= 1}
+                                                                    className="text-black font-bold text-sm w-6 h-6 flex items-center justify-center hover:bg-gray-200 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                >
+                                                                    -
+                                                                </button>
+                                                                <span className={`font-medium mx-2 min-w-[1.5rem] text-center text-sm ${
+                                                                    item.quantity > item.product.stock ? 'text-orange-600' : 'text-black'
+                                                                }`}>
+                                                                    {updating === item.id ? '...' : item.quantity}
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => updateQuantity(item.id, item.quantity + 1, item.product.stock)}
+                                                                    disabled={updating === item.id || item.quantity >= item.product.stock}
+                                                                    className="text-black font-bold text-sm w-6 h-6 flex items-center justify-center hover:bg-gray-200 rounded-full transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                >
+                                                                    +
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-red-400 text-xs font-medium">
+                                                                OUT OF STOCK
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Stock and Price in Second Row */}
+                                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                                        <p className="text-gray-500 text-xs">
+                                                            Stock: {item.product.stock}
+                                                        </p>
+                                                        <p className="text-gray-400 text-sm font-medium">
+                                                            IDR {formatPrice(item.product.price)}
+                                                        </p>
+                                                    </div>
+
+                                                    {/* Stock Warning */}
+                                                    {item.quantity > item.product.stock && item.product.stock > 0 && (
+                                                        <div className="text-orange-400 text-xs mb-1">
+                                                            Exceeds stock! ({item.product.stock} available)
+                                                        </div>
+                                                    )}
+
+                                                    {/* Actions Row */}
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        {/* Auto-fix button */}
+                                                        {item.quantity > item.product.stock && item.product.stock > 0 && (
+                                                            <button
+                                                                onClick={() => updateQuantity(item.id, item.product.stock, item.product.stock)}
+                                                                disabled={updating === item.id}
+                                                                className="text-orange-400 hover:text-orange-300 text-xs underline disabled:opacity-50"
+                                                            >
+                                                                Fix to {item.product.stock}
+                                                            </button>
+                                                        )}
+                                                        
+                                                        <div className="flex items-center gap-2 ml-auto">
+                                                            {/* Trash Button */}
+                                                            <button
+                                                                onClick={() => removeItem(item.id)}
+                                                                disabled={updating === item.id}
+                                                                className="text-red-400 hover:text-red-300 p-1 hover:bg-red-900/20 rounded-full transition disabled:opacity-50"
+                                                                title="Remove item"
+                                                            >
+                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>

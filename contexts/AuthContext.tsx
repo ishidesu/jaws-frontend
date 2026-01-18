@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { AuthUser, getCurrentUser } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
@@ -19,78 +19,80 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const isRefreshingRef = useRef(false)
+  const lastRefreshRef = useRef<number>(0)
 
   const refreshUser = async () => {
+    if (isRefreshingRef.current) {
+      console.log('[AuthContext] Refresh already in progress, skipping...')
+      return
+    }
+
+    const now = Date.now()
+    if (now - lastRefreshRef.current < 10000) {
+      console.log('[AuthContext] Refresh called too soon, skipping...')
+      return
+    }
+
+    isRefreshingRef.current = true
+    lastRefreshRef.current = now
+    
+    console.log('[AuthContext] Starting user refresh...')
+    
     try {
-      // Check if token is expired and refresh if needed
-      const { data: { session } } = await supabase.auth.getSession()
+      const currentUser = await getCurrentUser()
+      console.log('[AuthContext] User fetched:', currentUser ? `${currentUser.username} (${currentUser.email})` : 'null')
+      setUser(currentUser)
       
-      if (session && session.expires_at! * 1000 < Date.now() + 60000) { // Refresh 1 minute before expiry
-        console.log('Token expiring soon, refreshing...')
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-        
-        if (refreshError && refreshError.message !== 'signal is aborted without reason') {
-          console.error('Token refresh failed:', refreshError)
+      if (!currentUser) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          console.warn('[AuthContext] Session exists but user not found, forcing logout...')
+          await supabase.auth.signOut()
         }
       }
-      
-      const currentUser = await getCurrentUser()
-      setUser(currentUser)
     } catch (error: any) {
-      // Ignore AbortError as it's usually from cancelled requests
       if (error?.name !== 'AbortError' && !error?.message?.includes('aborted')) {
-        console.error('Error refreshing user:', error)
+        console.error('[AuthContext] Error refreshing user:', error)
       }
       setUser(null)
     } finally {
       setLoading(false)
+      isRefreshingRef.current = false
+      console.log('[AuthContext] Refresh complete')
     }
   }
 
   useEffect(() => {
-    // Get initial user
-    refreshUser()
+    const initAuth = async () => {
+      const timeoutId = setTimeout(() => {
+        if (loading) {
+          console.warn('Auth initialization timeout, setting loading to false')
+          setLoading(false)
+        }
+      }, 15000)
 
-    // Listen for auth changes
+      await refreshUser()
+      clearTimeout(timeoutId)
+    }
+
+    initAuth()
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth state changed:', event, session ? 'session exists' : 'no session')
+      async (event) => {
+        console.log('Auth state changed:', event)
         
-        if (event === 'SIGNED_IN' && session) {
+        if (event === 'SIGNED_IN') {
           await refreshUser()
         } else if (event === 'SIGNED_OUT') {
           setUser(null)
           setLoading(false)
-        } else if (event === 'TOKEN_REFRESHED' && session) {
-          console.log('Token refreshed automatically')
-          await refreshUser()
         }
       }
     )
 
-    // Set up periodic token refresh check
-    const tokenCheckInterval = setInterval(async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        
-        if (session && session.expires_at! * 1000 < Date.now() + 300000) { // Refresh 5 minutes before expiry
-          console.log('Periodic token refresh check - refreshing token')
-          const { error } = await supabase.auth.refreshSession()
-          if (error && error.message !== 'signal is aborted without reason') {
-            console.error('Periodic token refresh failed:', error)
-          }
-        }
-      } catch (error: any) {
-        // Ignore AbortError and similar cancellation errors
-        if (error?.name !== 'AbortError' && !error?.message?.includes('aborted')) {
-          console.error('Periodic token check error:', error)
-        }
-      }
-    }, 60000) // Check every minute
-
     return () => {
       subscription.unsubscribe()
-      clearInterval(tokenCheckInterval)
     }
   }, [])
 

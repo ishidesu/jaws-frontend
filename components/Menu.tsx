@@ -32,10 +32,12 @@ export default function Menu() {
                     </div>
 
                     {/* BUTTON (center bottom) */}
-                    <div className="absolute w-full flex justify-center mt-30 -ml-10">
-                        <button className="px-20 py-3 rounded-full bg-white text-black text-lg font-medium hover:bg-gray-200 transition">
-                            Order now
-                        </button>
+                    <div className="absolute w-full flex justify-center mt-30 -ml-5">
+                        <Link href="/catalog">
+                            <button className="px-20 py-3 rounded-full bg-white text-black text-lg font-medium hover:bg-gray-200 transition">
+                                Order now
+                            </button>
+                        </Link>
                     </div>
 
                 </div>
@@ -159,25 +161,26 @@ export default function Menu() {
                 />
 
                 {/* Overlay Content */}
-                <div className="absolute right-40 md:right-[400] z-10 text-white max-w-2xl flex flex-col gap-6">
+                <div className="absolute inset-0 z-10 flex items-center justify-center px-6 md:px-0 md:right-40 md:left-auto">
+                    <div className="text-white max-w-2xl flex flex-col gap-6 w-full md:w-auto">
+                        {/* TITLE */}
+                        <h2 className="text-2xl md:text-5xl font-extrabold leading-tight text-center md:w-[800px]">
+                            Stay Up to Date with All News <br className="hidden md:block" /> 
+                            <span className="md:inline"> and Exclusive Offers</span>
+                        </h2>
 
-                    {/* TITLE */}
-                    <h2 className="text-3xl md:text-5xl font-extrabold leading-tight text-center w-full md:w-[800]">
-                        Stay Up to Date with All News <br /> 
-                        and Exclusive Offers
-                    </h2>
+                        {/* EMAIL FORM */}
+                        <div className="flex items-center bg-white rounded-full pl-4 md:pl-6 pr-2 py-2 md:py-3 w-full md:w-[430px] gap-4 md:gap-10 mx-auto md:ml-44">
+                            <input
+                                type="email"
+                                placeholder="Your email"
+                                className="flex-1 text-black text-base md:text-lg outline-none bg-transparent text-center"
+                            />
 
-                    {/* EMAIL FORM */}
-                    <div className="flex items-cente rounded-full pl-6 pr-2 py-3 w-full md:w-[430px] gap-10 ml-44">
-                        <input
-                            type="email"
-                            placeholder="Your email"
-                            className="flex-1 text-black text-lg outline-none bg-white rounded-full text-center"
-                        />
-
-                        <button className="w-12 h-12 rounded-full bg-black flex items-center justify-center hover:bg-gray-800 transition">
-                            <span className="text-white text-2xl">›</span>
-                        </button>
+                            <button className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-black flex items-center justify-center hover:bg-gray-800 transition flex-shrink-0">
+                                <span className="text-white text-xl md:text-2xl">›</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

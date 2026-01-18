@@ -121,13 +121,6 @@ export default function Register() {
         }
     };
 
-    const handleSkipOTP = () => {
-        setUseRegularSignup(true);
-        setOtpSent(false);
-        setError("");
-        setOtpMessage("");
-    };
-
     return (
         <div className="relative w-full min-h-screen">
 
@@ -248,7 +241,7 @@ export default function Register() {
                                     className="w-full px-4 py-3 rounded-md bg-white/90 text-black placeholder-gray-600 focus:outline-none disabled:opacity-50 text-sm"
                                 />
                                 <p className="text-xs text-white/60 text-center">
-                                    Copy the entire verification code from your email (not just numbers)
+                                    Copy the entire verification code from your email
                                 </p>
                                 <div className="flex justify-between text-sm">
                                     {countdown === 0 && (
@@ -261,13 +254,6 @@ export default function Register() {
                                             Resend verification email
                                         </button>
                                     )}
-                                    <button
-                                        type="button"
-                                        onClick={handleSkipOTP}
-                                        className="text-gray-300 hover:text-gray-200 underline"
-                                    >
-                                        Skip verification
-                                    </button>
                                 </div>
                             </div>
                         )}
@@ -299,27 +285,14 @@ export default function Register() {
                         >
                             {loading ? "Creating account..." : "Create account"}
                         </button>
-
-                        {/* Debug Info */}
-                        {process.env.NODE_ENV === 'development' && (
-                            <div className="mt-2 text-xs text-white/50 text-center">
-                                Debug: OTP={formData.otp.length} chars, OTPSent={otpSent.toString()}, Regular={useRegularSignup.toString()}
-                            </div>
-                        )}
                     </form>
 
                     {/* Info Text */}
                     {!otpSent && !useRegularSignup && (
                         <div className="mt-4 text-center">
                             <p className="text-xs text-white/60 max-w-xs mb-2">
-                                Click "Send Code" for email verification, or
+                                Click "Send Code" for email verification
                             </p>
-                            <button
-                                onClick={handleSkipOTP}
-                                className="text-sm text-blue-300 hover:text-blue-200 underline"
-                            >
-                                Skip and register without verification
-                            </button>
                         </div>
                     )}
 

@@ -47,25 +47,41 @@ export default function Login() {
             return;
         }
 
+        // Add timeout to prevent stuck loading
+        const loginTimeout = setTimeout(() => {
+            setError("Login is taking too long. Please check your connection and try again.");
+            setLoading(false);
+        }, 20000); // 20 second timeout
+
         try {
             const result = await loginUser(formData);
+            
+            clearTimeout(loginTimeout); // Clear timeout if login completes
             
             if (result.success) {
                 // Wait a bit before refreshing user to avoid race conditions
                 await new Promise(resolve => setTimeout(resolve, 500));
                 await refreshUser();
-                router.push("/");
+                
+                // Add a small delay to ensure state is updated
+                setTimeout(() => {
+                    router.push("/");
+                }, 100);
             } else {
                 setError(result.error || "Login failed");
+                setLoading(false);
             }
         } catch (error: any) {
+            clearTimeout(loginTimeout); // Clear timeout on error
+            
             // Handle AbortError specifically
             if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
                 setError("Login request was cancelled. Please try again.");
+            } else if (error?.message?.includes('timeout')) {
+                setError("Login request timeout. Please check your connection.");
             } else {
                 setError(error.message || "An unexpected error occurred");
             }
-        } finally {
             setLoading(false);
         }
     };
@@ -158,8 +174,13 @@ export default function Login() {
                         </button>
                     </form>
 
+                    {/* Forgot Password Link */}
+                    <Link href="/forgot-password" className="mt-4 text-sm text-white/80 hover:text-white cursor-pointer">
+                        Forgot Password?
+                    </Link>
+
                     {/* Register Link */}
-                    <Link href="/register" className="mt-4 text-sm text-white/80 hover:text-white cursor-pointer">
+                    <Link href="/register" className="mt-2 text-sm text-white/80 hover:text-white cursor-pointer">
                         Create a New account.
                     </Link>
 

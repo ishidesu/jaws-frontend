@@ -76,7 +76,7 @@ function ReceiptPageContent() {
     };
 
     useEffect(() => {
-        if (!order || order.status !== 'pending') return;
+        if (!order || (order.status !== 'pending' && order.status !== 'confirmed')) return;
 
         const timer = setInterval(() => {
             const remaining = calculateTimeLeft(order.expires_at);
@@ -182,6 +182,11 @@ function ReceiptPageContent() {
         );
     };
 
+    const truncateText = (text: string, maxLength: number = 15): string => {
+        if (text.length <= maxLength) return text;
+        return text.substring(0, maxLength) + '...';
+    };
+
     useEffect(() => {
         if (!authLoading) {
             fetchOrder();
@@ -265,14 +270,18 @@ function ReceiptPageContent() {
                                         {order.status.toUpperCase()}
                                     </span>
                                     
-                                    {/* Countdown Timer for Pending Orders */}
-                                    {order.status === 'pending' && (
+                                    {/* Countdown Timer for Pending and Confirmed Orders */}
+                                    {(order.status === 'pending' || order.status === 'confirmed') && (
                                         <div className="mt-2">
-                                            <p className="text-orange-400 text-xs font-medium">
+                                            <p className={`text-xs font-medium ${
+                                                order.status === 'pending' ? 'text-orange-400' : 'text-blue-400'
+                                            }`}>
                                                 {timeLeft === 'Expired' ? (
-                                                    'Order Expired'
+                                                    'Order Expired - Will be cancelled'
                                                 ) : (
-                                                    `Confirm before ${timeLeft}`
+                                                    order.status === 'pending'
+                                                        ? `Confirm before ${timeLeft}`
+                                                        : `Pick up before ${timeLeft}`
                                                 )}
                                             </p>
                                         </div>
@@ -286,7 +295,7 @@ function ReceiptPageContent() {
                             {order.order_items.map((item) => (
                                 <div key={item.id} className="flex justify-between items-center">
                                     <div className="flex-1">
-                                        <p className="text-white font-medium">{item.product.name}</p>
+                                        <p className="text-white font-medium">{truncateText(item.product.name, 20)}</p>
                                         <p className="text-gray-400 text-sm">
                                             IDR {formatPrice(item.price_at_time)} × {item.quantity}
                                         </p>
@@ -362,11 +371,14 @@ function ReceiptPageContent() {
                                 <strong>2.</strong> Pembayaran dapat dilakukan dengan melalui WhatsApp atau membayar langsung di toko.
                             </p>
                             <p>
-                                <strong>3.</strong> Barang dapat diambil secara langsung ke toko dengan batas maksimal 5 hari (untuk pembayaran langsung di toko). 
-                                Jika tidak diambil dalam waktu yang ditentukan, maka pemesanan akan dibatalkan otomatis oleh sistem.
+                                <strong>3.</strong> Setelah pesanan dikonfirmasi oleh admin, barang harus diambil secara langsung ke toko dengan batas maksimal 5 hari. 
+                                Jika tidak diambil dalam waktu yang ditentukan, maka pesanan akan otomatis dibatalkan (cancelled) oleh sistem dan stock akan dikembalikan.
                             </p>
                             <p>
-                                <strong>4.</strong> Untuk yang sudah membayar lewat WhatsApp, pengambilan barang tidak ditentukan oleh waktu sistem.
+                                <strong>4.</strong> Untuk yang sudah membayar lewat WhatsApp, admin akan mengubah status pesanan menjadi "Paid" atau "Confirmed". Pastikan mengambil barang dalam waktu 5 hari.
+                            </p>
+                            <p>
+                                <strong>5.</strong> Pesanan dengan status "Cancelled" berarti pesanan dibatalkan karena tidak dikonfirmasi atau tidak diambil dalam waktu yang ditentukan.
                             </p>
                         </div>
                     </div>

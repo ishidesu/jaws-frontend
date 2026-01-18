@@ -1,9 +1,9 @@
 import uvicorn
 import os
 import uuid
-import secrets
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import jwt
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -12,30 +12,194 @@ import shutil
 from pathlib import Path
 from pydantic import BaseModel
 from typing import Optional
+import requests
 
 load_dotenv()
 
 app = FastAPI()
 
-security = HTTPBasic()
+security = HTTPBearer()
 
-BASIC_AUTH_USERNAME = os.environ.get("BASIC_AUTH_USERNAME", "admin")
-BASIC_AUTH_PASSWORD = os.environ.get("BASIC_AUTH_PASSWORD", "password123")
+# JWT Configuration
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
 
-def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
-    """
-    Verify basic auth credentials
-    """
-    is_correct_username = secrets.compare_digest(credentials.username, BASIC_AUTH_USERNAME)
-    is_correct_password = secrets.compare_digest(credentials.password, BASIC_AUTH_PASSWORD)
+if not SUPABASE_JWT_SECRET:
+    print("WARNING: SUPABASE_JWT_SECRET not set. JWT verification will fail!")
+
+# Cache for JWKS
+jwks_cache = None
+
+def get_jwks():
+    """Fetch JWKS from Supabase (cached)"""
+    global jwks_cache
+    if jwks_cache:
+        return jwks_cache
     
-    if not (is_correct_username and is_correct_password):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+    try:
+        jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+        response = requests.get(jwks_url, timeout=5)
+        if response.status_code == 200:
+            jwks_cache = response.json()
+            return jwks_cache
+    except Exception as e:
+        print(f"[JWT] Failed to fetch JWKS: {e}")
+    
+    return None
+
+async def verify_jwt_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    Verify JWT token from Supabase (supports both HS256 and RS256)
+    """
+    try:
+        token = credentials.credentials
+        
+        # First, try to decode without verification to get the algorithm
+        unverified_header = jwt.get_unverified_header(token)
+        algorithm = unverified_header.get('alg', 'HS256')
+        
+        print(f"[JWT] Token algorithm: {algorithm}")
+        
+        # Try HS256 first (Legacy JWT Secret)
+        if algorithm == 'HS256':
+            try:
+                payload = jwt.decode(
+                    token,
+                    SUPABASE_JWT_SECRET,
+                    algorithms=["HS256"],
+                    audience="authenticated"
+                )
+                print(f"[JWT] Verified with HS256: user_id={payload.get('sub')}")
+                
+                user_id = payload.get("sub")
+                if not user_id:
+                    raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
+                
+                return {
+                    "user_id": user_id,
+                    "role": payload.get("role"),
+                    "email": payload.get("email")
+                }
+            except jwt.InvalidTokenError as e:
+                print(f"[JWT] HS256 verification failed: {e}")
+                raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+        
+        # For RS256, try to get public key from JWKS
+        elif algorithm == 'RS256':
+            jwks = get_jwks()
+            if not jwks:
+                raise HTTPException(status_code=401, detail="Unable to fetch JWKS for RS256 verification")
+            
+            # Get the key ID from token header
+            kid = unverified_header.get('kid')
+            if not kid:
+                raise HTTPException(status_code=401, detail="Token missing 'kid' header")
+            
+            # Find the matching key in JWKS
+            key = None
+            for jwk in jwks.get('keys', []):
+                if jwk.get('kid') == kid:
+                    key = jwk
+                    break
+            
+            if not key:
+                raise HTTPException(status_code=401, detail=f"Key ID '{kid}' not found in JWKS")
+            
+            # Convert JWK to PEM format for verification
+            from jwt.algorithms import RSAAlgorithm
+            public_key = RSAAlgorithm.from_jwk(key)
+            
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience="authenticated"
+            )
+            print(f"[JWT] Verified with RS256: user_id={payload.get('sub')}")
+            
+            user_id = payload.get("sub")
+            if not user_id:
+                raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
+            
+            return {
+                "user_id": user_id,
+                "role": payload.get("role"),
+                "email": payload.get("email")
+            }
+        
+        # For ES256 (Elliptic Curve), get public key from JWKS
+        elif algorithm == 'ES256':
+            jwks = get_jwks()
+            if not jwks:
+                raise HTTPException(status_code=401, detail="Unable to fetch JWKS for ES256 verification")
+            
+            # Get the key ID from token header
+            kid = unverified_header.get('kid')
+            if not kid:
+                raise HTTPException(status_code=401, detail="Token missing 'kid' header")
+            
+            # Find the matching key in JWKS
+            key = None
+            for jwk in jwks.get('keys', []):
+                if jwk.get('kid') == kid:
+                    key = jwk
+                    break
+            
+            if not key:
+                raise HTTPException(status_code=401, detail=f"Key ID '{kid}' not found in JWKS")
+            
+            # Convert JWK to PEM format for verification
+            from jwt.algorithms import ECAlgorithm
+            public_key = ECAlgorithm.from_jwk(key)
+            
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["ES256"],
+                audience="authenticated"
+            )
+            print(f"[JWT] Verified with ES256: user_id={payload.get('sub')}")
+            
+            user_id = payload.get("sub")
+            if not user_id:
+                raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
+            
+            return {
+                "user_id": user_id,
+                "role": payload.get("role"),
+                "email": payload.get("email")
+            }
+        
+        else:
+            raise HTTPException(status_code=401, detail=f"Unsupported algorithm: {algorithm}")
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[JWT] Unexpected error: {e}")
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+async def verify_admin(user: dict = Depends(verify_jwt_token)):
+    """
+    Verify user is admin by checking profiles table
+    """
+    try:
+        # Query profiles table to check role
+        response = supabase.table('profiles').select('role').eq('id', user['user_id']).single().execute()
+        
+        if not response.data or response.data.get('role') != 'admin':
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        return user
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error verifying admin status: {str(e)}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,9 +247,10 @@ def read_root():
     }
 
 @app.post("/upload-image")
-async def upload_image(image: UploadFile = File(...), current_user: str = Depends(get_current_user)):
+async def upload_image(image: UploadFile = File(...), current_user: dict = Depends(verify_admin)):
     """
     Upload gambar ke folder library/items dan return URL-nya
+    Requires admin authentication via JWT
     """
     try:
         if not image.content_type.startswith('image/'):
@@ -113,9 +278,10 @@ async def upload_image(image: UploadFile = File(...), current_user: str = Depend
         raise HTTPException(status_code=500, detail=f"Error uploading image: {str(e)}")
 
 @app.delete("/delete-image/{filename}")
-async def delete_image(filename: str, current_user: str = Depends(get_current_user)):
+async def delete_image(filename: str, current_user: dict = Depends(verify_admin)):
     """
     Delete image file from backend storage
+    Requires admin authentication via JWT
     """
     try:
         file_path = Path("library/items") / filename
@@ -137,9 +303,10 @@ async def delete_image(filename: str, current_user: str = Depends(get_current_us
         raise HTTPException(status_code=500, detail=f"Error deleting image: {str(e)}")
 
 @app.delete("/delete-product/{product_id}")
-async def delete_product(product_id: str, current_user: str = Depends(get_current_user)):
+async def delete_product(product_id: str, current_user: dict = Depends(verify_admin)):
     """
     Delete product dan cleanup image file
+    Requires admin authentication via JWT
     """
     try:
         print(f"Deleting product {product_id}")
@@ -184,9 +351,10 @@ async def delete_product(product_id: str, current_user: str = Depends(get_curren
         raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
 
 @app.put("/update-product/{product_id}")
-async def update_product(product_id: str, product_data: ProductUpdate, current_user: str = Depends(get_current_user)):
+async def update_product(product_id: str, product_data: ProductUpdate, current_user: dict = Depends(verify_admin)):
     """
     Update product menggunakan REST API untuk menghindari race condition
+    Requires admin authentication via JWT
     """
     try:
         print(f"Updating product {product_id} with data: {product_data.dict()}")
