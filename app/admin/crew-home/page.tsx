@@ -41,6 +41,7 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
   const [editingDescription, setEditingDescription] = useState<{[key: string]: string}>({});
   const [editingName, setEditingName] = useState<{[key: string]: string}>({});
   const [editingPrice, setEditingPrice] = useState<{[key: string]: string}>({});
+  const [editingImage, setEditingImage] = useState<{[key: string]: File | null}>({});
   
   const [originalValues, setOriginalValues] = useState<{[key: string]: any}>({});
   
@@ -64,6 +65,14 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
   const [updatingOrders, setUpdatingOrders] = useState<{[key: string]: boolean}>({});
   const [ordersError, setOrdersError] = useState<string>('');
   const [showOrdersRefreshWarning, setShowOrdersRefreshWarning] = useState(false);
+
+  // Manage Users states
+  const [users, setUsers] = useState<any[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [usersSearchQuery, setUsersSearchQuery] = useState('');
+  const [editingUser, setEditingUser] = useState<string | null>(null);
+  const [suspendDuration, setSuspendDuration] = useState<string>('active');
+  const [updatingUsers, setUpdatingUsers] = useState<{[key: string]: boolean}>({});
 
   const truncateText = (text: string, maxLength: number = 15): string => {
     if (text.length <= maxLength) return text;
@@ -150,6 +159,9 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
     } else if (activeRoute === 'manage-order') {
       console.log('Loading orders for manage-order');
       fetchOrders();
+    } else if (activeRoute === 'manage-user') {
+      console.log('Loading users for manage-user');
+      fetchUsers();
     }
   }, [activeRoute]);
 
@@ -478,12 +490,14 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
     const currentPrice = editingPrice[productId] || '';
     const currentDescription = editingDescription[productId] || '';
     const currentStock = editStocks[productId];
+    const hasNewImage = editingImage[productId] !== undefined && editingImage[productId] !== null;
     
     return (
       original.name !== currentName ||
       original.price !== currentPrice ||
       original.description !== currentDescription ||
-      original.stock !== currentStock
+      original.stock !== currentStock ||
+      hasNewImage
     );
   };
 
@@ -497,6 +511,7 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
     const priceStr = editingPrice[productId];
     const description = editingDescription[productId]?.trim();
     const stock = editStocks[productId];
+    const newImage = editingImage[productId];
 
     if (!name) {
       alert('Nama produk tidak boleh kosong!');
@@ -518,11 +533,28 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
     setUpdatingProducts(prev => ({ ...prev, [productId]: true }));
 
     try {
+      let imageUrl = originalValues[productId]?.image_url;
+      
+      // If there's a new image, upload it first
+      if (newImage) {
+        try {
+          console.log('Uploading new image for product:', productId);
+          imageUrl = await uploadImageToBackend(newImage);
+          console.log('New image uploaded:', imageUrl);
+        } catch (uploadError) {
+          console.error('Image upload failed:', uploadError);
+          alert('Gagal mengupload gambar baru. Lanjutkan tanpa mengganti gambar?');
+          // Continue with old image URL
+          imageUrl = originalValues[productId]?.image_url;
+        }
+      }
+
       console.log('Updating product via REST API:', productId, {
         name,
         price,
         description: description || '',
-        stock
+        stock,
+        image_url: imageUrl
       });
 
       // Get JWT token
@@ -538,7 +570,8 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
           name: name,
           price: price,
           description: description || '',
-          stock: stock
+          stock: stock,
+          image_url: imageUrl
         })
       });
 
@@ -558,7 +591,8 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
             name: updatedProduct.name,
             price: updatedProduct.price.toString(),
             description: updatedProduct.description || '',
-            stock: updatedProduct.stock
+            stock: updatedProduct.stock,
+            image_url: updatedProduct.image_url
           }
         }));
         
@@ -566,6 +600,7 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
         setEditingPrice(prev => ({ ...prev, [productId]: updatedProduct.price.toString() }));
         setEditingDescription(prev => ({ ...prev, [productId]: updatedProduct.description || '' }));
         setEditStocks(prev => ({ ...prev, [productId]: updatedProduct.stock }));
+        setEditingImage(prev => ({ ...prev, [productId]: null })); // Clear the new image
       }
       
       alert('Product berhasil diupdate!');
@@ -961,6 +996,141 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
     setSpecificDate('');
   };
 
+  // Manage Users Functions
+  const fetchUsers = async () => {
+    try {
+      setIsLoadingUsers(true);
+      
+      // Auto-unsuspend expired users first
+      try {
+        await supabase.rpc('auto_unsuspend_users');
+      } catch (err: any) {
+        console.warn('Auto-unsuspend failed:', err);
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setUsers(data || []);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      alert('Gagal memuat data user');
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  };
+
+  const getUserStatus = (user: any): string => {
+    if (!user.suspended) return 'active';
+    
+    if (!user.suspended_until) return 'suspended';
+    
+    const suspendedUntil = new Date(user.suspended_until);
+    const now = new Date();
+    
+    if (suspendedUntil < now) {
+      return 'active';
+    }
+    
+    return 'suspended';
+  };
+
+  const getSuspendedUntilText = (user: any): string => {
+    if (!user.suspended || !user.suspended_until) return '';
+    
+    const suspendedUntil = new Date(user.suspended_until);
+    return suspendedUntil.toLocaleString('id-ID', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const handleEditUserClick = (userId: string) => {
+    setEditingUser(userId);
+    setSuspendDuration('active');
+  };
+
+  const handleCancelUserEdit = () => {
+    setEditingUser(null);
+    setSuspendDuration('active');
+  };
+
+  const calculateSuspendedUntil = (duration: string): Date | null => {
+    // 'active' means no suspension
+    if (duration === 'active') return null;
+    
+    // 'permanent' means suspended forever (no expiry date)
+    if (duration === 'permanent') return null;
+    
+    const now = new Date();
+    
+    switch (duration) {
+      case '1hour':
+        return new Date(now.getTime() + 60 * 60 * 1000);
+      case '1day':
+        return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      case '3days':
+        return new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      case '7days':
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      case '30days':
+        return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      default:
+        return null;
+    }
+  };
+
+  const handleConfirmUserEdit = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+
+    const currentStatus = getUserStatus(user);
+    const newStatus = suspendDuration === 'active' ? 'active' : 'suspended';
+
+    // If no change, just close
+    if (currentStatus === newStatus && newStatus === 'active') {
+      handleCancelUserEdit();
+      return;
+    }
+
+    setUpdatingUsers(prev => ({ ...prev, [userId]: true }));
+
+    try {
+      const suspendedUntil = calculateSuspendedUntil(suspendDuration);
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          suspended: newStatus === 'suspended',
+          suspended_until: suspendedUntil ? suspendedUntil.toISOString() : null
+        })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      alert('Status user berhasil diupdate! User harus logout dan login ulang akan di-block.');
+      await fetchUsers();
+      handleCancelUserEdit();
+    } catch (error) {
+      console.error('Error updating user:', error);
+      alert('Gagal mengupdate status user');
+    } finally {
+      setUpdatingUsers(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
+  const filteredUsers = users.filter(user => 
+    user.username.toLowerCase().includes(usersSearchQuery.toLowerCase()) ||
+    user.email.toLowerCase().includes(usersSearchQuery.toLowerCase())
+  );
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
@@ -990,6 +1160,8 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
         return 'home/Manage catalog/Delete item';
       case 'manage-order':
         return 'home/Manage order/View orders';
+      case 'manage-user':
+        return 'home/Manage user/View users';
       default:
         return 'home/Manage catalog';
     }
@@ -1002,6 +1174,7 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
       { id: 'delete-item', label: 'Delete item' }
     ]},
     { id: 'manage-order', label: 'Manage order', items: [], isButton: true },
+    { id: 'manage-user', label: 'Manage user', items: [], isButton: true },
   ];
 
   return (
@@ -1187,6 +1360,22 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
               </div>
             </>
           )}
+
+          {/* Search Input for Users */}
+          {activeRoute === 'manage-user' && (
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Search users..."
+                value={usersSearchQuery}
+                onChange={(e) => setUsersSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm"
+              />
+              <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+          )}
         </div>
 
         {/* Breadcrumb with Desktop Search and Refresh */}
@@ -1339,6 +1528,22 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
                   placeholder="Search order ID..."
                   value={ordersSearchQuery}
                   onChange={(e) => setOrdersSearchQuery(e.target.value)}
+                  className="pl-10 pr-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 w-64"
+                />
+                <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            )}
+
+            {/* Search Input for Users */}
+            {activeRoute === 'manage-user' && (
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search users..."
+                  value={usersSearchQuery}
+                  onChange={(e) => setUsersSearchQuery(e.target.value)}
                   className="pl-10 pr-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 w-64"
                 />
                 <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1641,7 +1846,7 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
                     <div key={product.id}>
                       {/* Desktop Layout */}
                       <div className="hidden md:grid md:grid-cols-[400px_1fr_330px] gap-8 items-start">
-                        <div className="w-[400px] h-[400px] bg-white rounded flex items-center justify-center overflow-hidden relative border-2 border-gray-200">
+                        <div className="w-[400px] h-[400px] bg-white rounded flex items-center justify-center overflow-hidden relative border-2 border-gray-200 group">
                           <div className="absolute inset-0 opacity-5">
                             <div className="w-full h-full" style={{
                               backgroundImage: `
@@ -1652,20 +1857,60 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
                             }}></div>
                           </div>
                           
-                          <OptimizedImage
-                            src={transformImageUrl(product.image_url)}
-                            alt={product.name}
-                            aspectRatio="aspect-auto"
-                            className="max-w-full max-h-full"
-                            fallback={
-                              <div className="flex flex-col items-center justify-center text-gray-400 h-full">
-                                <div className="w-12 h-12 border-2 border-gray-300 rounded-full flex items-center justify-center mb-2">
-                                  <span className="text-2xl">+</span>
+                          {/* Display new image if selected, otherwise show original */}
+                          {editingImage[product.id] ? (
+                            <img
+                              src={URL.createObjectURL(editingImage[product.id]!)}
+                              alt="New image preview"
+                              className="max-w-full max-h-full object-contain"
+                            />
+                          ) : (
+                            <OptimizedImage
+                              src={transformImageUrl(product.image_url)}
+                              alt={product.name}
+                              aspectRatio="aspect-auto"
+                              className="max-w-full max-h-full"
+                              fallback={
+                                <div className="flex flex-col items-center justify-center text-gray-400 h-full">
+                                  <div className="w-12 h-12 border-2 border-gray-300 rounded-full flex items-center justify-center mb-2">
+                                    <span className="text-2xl">+</span>
+                                  </div>
+                                  <p className="text-sm">No Image</p>
                                 </div>
-                                <p className="text-sm">No Image</p>
-                              </div>
-                            }
-                          />
+                              }
+                            />
+                          )}
+                          
+                          {/* Change Image Button - Shows on hover */}
+                          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                  setEditingImage(prev => ({ ...prev, [product.id]: e.target.files![0] }));
+                                }
+                              }}
+                              className="hidden"
+                              id={`image-edit-${product.id}`}
+                              disabled={updatingProducts[product.id]}
+                            />
+                            <label
+                              htmlFor={`image-edit-${product.id}`}
+                              className={`px-6 py-3 bg-white text-black rounded-lg font-medium cursor-pointer hover:bg-gray-200 transition-colors ${
+                                updatingProducts[product.id] ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
+                            >
+                              Change Image
+                            </label>
+                          </div>
+                          
+                          {/* New Image Indicator */}
+                          {editingImage[product.id] && (
+                            <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-3 py-1 rounded-full font-medium">
+                              New Image Selected
+                            </div>
+                          )}
                         </div>
 
                         {/* Product Info */}
@@ -1716,6 +1961,7 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
                           {hasChanges(product.id) && !updatingProducts[product.id] && (
                             <div className="text-red-400 text-sm font-medium text-center mb-2">
                               ITEMS NOT SAVED.
+                              {editingImage[product.id] && <div className="text-xs mt-1">(Including new image)</div>}
                             </div>
                           )}
                           
@@ -1775,9 +2021,21 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
 
                       {/* Mobile Layout */}
                       <div className="md:hidden space-y-4">
-                        {/* Image - Smaller */}
+                        {/* Image - Smaller with Change Button */}
                         <div className="w-full h-48 bg-white rounded flex items-center justify-center overflow-hidden relative border-2 border-gray-200 p-4">
-                          {product.image_url ? (
+                          {editingImage[product.id] ? (
+                            <img
+                              src={URL.createObjectURL(editingImage[product.id]!)}
+                              alt="New image preview"
+                              style={{
+                                maxWidth: '90%',
+                                maxHeight: '90%',
+                                width: 'auto',
+                                height: 'auto',
+                                objectFit: 'contain'
+                              }}
+                            />
+                          ) : product.image_url ? (
                             <img
                               src={transformImageUrl(product.image_url) || ''}
                               alt={product.name}
@@ -1801,6 +2059,35 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
                             </div>
                             <p className="text-xs">No Image</p>
                           </div>
+                          
+                          {/* Change Image Button - Always visible on mobile */}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                setEditingImage(prev => ({ ...prev, [product.id]: e.target.files![0] }));
+                              }
+                            }}
+                            className="hidden"
+                            id={`image-edit-mobile-${product.id}`}
+                            disabled={updatingProducts[product.id]}
+                          />
+                          <label
+                            htmlFor={`image-edit-mobile-${product.id}`}
+                            className={`absolute bottom-2 left-1/2 transform -translate-x-1/2 px-3 py-1.5 bg-white text-black rounded-lg font-medium text-xs cursor-pointer shadow-lg ${
+                              updatingProducts[product.id] ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'
+                            }`}
+                          >
+                            {editingImage[product.id] ? 'Change Again' : 'Change Image'}
+                          </label>
+                          
+                          {/* New Image Indicator */}
+                          {editingImage[product.id] && (
+                            <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full font-medium">
+                              New
+                            </div>
+                          )}
                         </div>
 
                         {/* Product Info */}
@@ -1851,6 +2138,7 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
                           {hasChanges(product.id) && !updatingProducts[product.id] && (
                             <div className="text-red-400 text-xs font-medium text-center">
                               ITEMS NOT SAVED.
+                              {editingImage[product.id] && <div className="text-xs mt-1">(Including new image)</div>}
                             </div>
                           )}
                           
@@ -2347,6 +2635,135 @@ function CrewHomeContent({ activeRoute, setActiveRoute }: { activeRoute: string;
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Manage User Page */}
+        {activeRoute === 'manage-user' && (
+          <div className="flex justify-center">
+            <div className="w-full" style={{ maxWidth: '1400px' }}>
+              {isLoadingUsers ? (
+                <div className="flex flex-col justify-center items-center h-64 gap-4">
+                  <p className="text-gray-500 text-xl opacity-50">LOADING USERS...</p>
+                </div>
+              ) : filteredUsers.length === 0 ? (
+                <div className="flex justify-center items-center h-64">
+                  <p className="text-gray-500 text-xl opacity-50">
+                    {usersSearchQuery ? 'NO USERS FOUND.' : 'NO USERS YET.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredUsers.map((user) => {
+                    const status = getUserStatus(user);
+                    const isEditing = editingUser === user.id;
+                    const isUpdating = updatingUsers[user.id];
+
+                    return (
+                      <div 
+                        key={user.id} 
+                        className="bg-gray-800 border border-gray-700 rounded-lg p-4 md:p-6"
+                      >
+                        {/* User Info */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                          <div>
+                            <div className="text-gray-400 text-sm mb-1">Username</div>
+                            <div className="text-white font-medium">{user.username}</div>
+                          </div>
+                          
+                          <div>
+                            <div className="text-gray-400 text-sm mb-1">Email</div>
+                            <div className="text-white break-all">{user.email}</div>
+                          </div>
+                          
+                          <div>
+                            <div className="text-gray-400 text-sm mb-1">Status</div>
+                            <div className="flex flex-col gap-1">
+                              <span className={`px-3 py-1 rounded-full text-sm font-medium inline-block w-fit ${
+                                status === 'active' 
+                                  ? 'bg-green-600 text-white' 
+                                  : 'bg-red-600 text-white'
+                              }`}>
+                                {status === 'active' ? 'Active' : 'Suspended'}
+                              </span>
+                              {status === 'suspended' && user.suspended_until && (
+                                <span className="text-gray-400 text-xs">
+                                  until {getSuspendedUntilText(user)}
+                                </span>
+                              )}
+                              {status === 'suspended' && !user.suspended_until && (
+                                <span className="text-gray-400 text-xs">
+                                  (Permanent)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Edit Mode */}
+                        {isEditing && (
+                          <div className="mb-4 p-4 bg-gray-700 rounded-lg">
+                            <div className="text-white text-sm font-medium mb-3">
+                              Suspend Duration
+                            </div>
+                            <select
+                              value={suspendDuration}
+                              onChange={(e) => setSuspendDuration(e.target.value)}
+                              className="w-full md:w-64 px-4 py-2 bg-gray-600 border border-gray-500 rounded text-white focus:outline-none focus:border-blue-500"
+                              disabled={isUpdating}
+                            >
+                              <option value="active">Active (No Suspension)</option>
+                              <option value="1hour">1 Hour</option>
+                              <option value="1day">1 Day</option>
+                              <option value="3days">3 Days</option>
+                              <option value="7days">7 Days</option>
+                              <option value="30days">30 Days</option>
+                              <option value="permanent">Permanent (Never expires)</option>
+                            </select>
+                          </div>
+                        )}
+
+                        {/* Divider */}
+                        <div className="border-t border-gray-600 my-4"></div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-3">
+                          {!isEditing ? (
+                            <button
+                              onClick={() => handleEditUserClick(user.id)}
+                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                            >
+                              Edit Status
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleConfirmUserEdit(user.id)}
+                                disabled={isUpdating}
+                                className={`px-4 py-2 rounded-lg transition-colors ${
+                                  isUpdating
+                                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                                    : 'bg-green-600 hover:bg-green-700 text-white'
+                                }`}
+                              >
+                                {isUpdating ? 'Updating...' : 'Confirm Edit'}
+                              </button>
+                              <button
+                                onClick={handleCancelUserEdit}
+                                disabled={isUpdating}
+                                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

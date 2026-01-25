@@ -327,6 +327,24 @@ export default function Navbar({ crewHomeMenu }: { crewHomeMenu?: { activeRoute:
                                         Manage order
                                     </button>
                                 </li>
+                                
+                                <li className={`transition-all duration-300 ${
+                                    showMobileMenu ? 'opacity-100 translate-x-0 delay-300' : 'opacity-0 -translate-x-4'
+                                }`}>
+                                    <button
+                                        onClick={() => {
+                                            crewHomeMenu.setActiveRoute('manage-user');
+                                            setShowMobileMenu(false);
+                                        }}
+                                        className={`w-full text-left px-3 py-2 rounded text-sm ${
+                                            crewHomeMenu.activeRoute === 'manage-user'
+                                                ? 'bg-gray-700 text-white font-medium'
+                                                : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                                        }`}
+                                    >
+                                        Manage user
+                                    </button>
+                                </li>
                             </ul>
                         ) : (
                             /* Regular Navigation Menu */

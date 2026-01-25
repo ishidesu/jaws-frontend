@@ -22,14 +22,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isRefreshingRef = useRef(false)
   const lastRefreshRef = useRef<number>(0)
 
-  const refreshUser = async () => {
+  const refreshUser = async (forceRefresh = false) => {
     if (isRefreshingRef.current) {
       console.log('[AuthContext] Refresh already in progress, skipping...')
       return
     }
 
     const now = Date.now()
-    if (now - lastRefreshRef.current < 10000) {
+    // Increase debounce to 30 seconds to prevent excessive refetching
+    if (!forceRefresh && now - lastRefreshRef.current < 30000) {
       console.log('[AuthContext] Refresh called too soon, skipping...')
       return
     }
@@ -39,16 +40,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     console.log('[AuthContext] Starting user refresh...')
     
-    // Clear cache untuk force fetch data terbaru
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('jaws-cached-user')
-      localStorage.removeItem('jaws-cached-user-time')
-      console.log('[AuthContext] Cache cleared')
-    }
-    
+    // Don't clear cache - let getCurrentUser handle it
     try {
       const currentUser = await getCurrentUser()
       console.log('[AuthContext] User fetched:', currentUser ? `${currentUser.username} (${currentUser.email})` : 'null')
+      
       setUser(currentUser)
       
       if (!currentUser) {
@@ -79,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }, 15000)
 
-      await refreshUser()
+      await refreshUser(true)
       clearTimeout(timeoutId)
     }
 
@@ -90,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('Auth state changed:', event)
         
         if (event === 'SIGNED_IN') {
-          await refreshUser()
+          await refreshUser(true)
         } else if (event === 'SIGNED_OUT') {
           setUser(null)
           setLoading(false)

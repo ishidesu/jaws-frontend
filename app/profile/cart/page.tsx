@@ -219,78 +219,45 @@ export default function CartPage() {
         setCheckingOut(true);
         
         try {
-            for (const item of cartItems) {
-                if (item.quantity > item.product.stock) {
-                    throw new Error(`Insufficient stock for ${item.product.name}. Available: ${item.product.stock}, Requested: ${item.quantity}`);
-                }
-            }
-
-            const orderNumber = `ORD-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
-            
-            const { data: order, error: createOrderError } = await supabase
-                .from('orders')
-                .insert({
-                    user_id: user!.id,
-                    order_number: orderNumber,
-                    total_amount: getCartTotal(),
-                    status: 'pending'
-                })
-                .select()
-                .single();
-
-            if (createOrderError) {
-                console.error('Error creating order:', createOrderError);
-                throw createOrderError;
-            }
-
-            const orderItems = cartItems.map(item => ({
-                order_id: order.id,
+            // Prepare cart items for the RPC function
+            const cartItemsForOrder = cartItems.map(item => ({
                 product_id: item.product_id,
                 quantity: item.quantity,
                 price_at_time: item.product.price
             }));
 
-            const { error: itemsError } = await supabase
-                .from('order_items')
-                .insert(orderItems);
+            // Call the database function with row-level locking
+            const { data, error } = await supabase.rpc('create_order_with_items', {
+                p_user_id: user!.id,
+                p_cart_items: cartItemsForOrder,
+                p_total_amount: getCartTotal()
+            });
 
-            if (itemsError) {
-                console.error('Error creating order items:', itemsError);
-                await supabase.from('orders').delete().eq('id', order.id);
-                throw itemsError;
+            if (error) {
+                console.error('Error creating order:', error);
+                throw error;
             }
 
-            for (const item of cartItems) {
-                const { error: stockError } = await supabase
-                    .from('products')
-                    .update({ stock: item.product.stock - item.quantity })
-                    .eq('id', item.product_id);
-
-                if (stockError) {
-                    console.error('Error updating stock:', stockError);
-                }
+            // Check if the function returned an error
+            if (data && !data.success) {
+                throw new Error(data.error || 'Failed to create order');
             }
 
-            // Clear cart after successful order creation
-            const { error: clearCartError } = await supabase
-                .from('cart_items')
-                .delete()
-                .eq('user_id', user!.id);
-
-            if (clearCartError) {
-                console.error('Error clearing cart:', clearCartError);
-            }
-
+            // Clear local cart state
             setCartItems([]);
             
-            router.push(`/checkout/receipt/${order.id}`);
+            // Redirect to receipt page
+            router.push(`/checkout/receipt/${data.order_id}`);
             
         } catch (error: any) {
             console.error('Error creating order:', error);
             
-            if (error.message.includes('Insufficient stock')) {
-                alert(error.message);
-                fetchCartItems();
+            // Check for suspension error
+            if (error.message.includes('suspended')) {
+                alert(error.message); // Display the suspension message from database
+            } else if (error.message.includes('Insufficient stock') || error.message.includes('stock')) {
+                alert('Stock tidak cukup! Barang mungkin sudah dipesan oleh user lain. Silakan refresh halaman.');
+                fetchCartItems(); // Refresh cart to show updated stock
             } else if (error.message.includes('violates row-level security policy')) {
                 alert('Authentication error. Please try logging in again.');
                 router.push('/login');

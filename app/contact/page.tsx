@@ -14,7 +14,7 @@ export default function ContactPage() {
                 </svg>
             ),
             title: 'Alamat',
-            content: 'Jl. Custom Motor No. 123\nJakarta Selatan, DKI Jakarta\n12345'
+            content: 'Jl. Kelurahan Jatijajar, Jatijajar\nKec. Tapos, Kota Depok\nJawa Barat 16451'
         },
         {
             icon: (
@@ -157,7 +157,7 @@ export default function ContactPage() {
                             <h2 className="text-3xl font-bold mb-6">Lokasi Workshop</h2>
                             <div className="bg-gray-700 rounded-lg overflow-hidden" style={{ height: '600px' }}>
                                 <iframe
-                                    src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3966.0!2d106.8!3d-6.3!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNsKwMTgnMDAuMCJTIDEwNsKwNDgnMDAuMCJF!5e0!3m2!1sen!2sid!4v1234567890"
+                                    src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3964.4!2d106.8!3d-6.4!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x2e69eb3e7e3e3e3e%3A0x3e3e3e3e3e3e3e3e!2sJatijajar%2C%20Kec.%20Tapos%2C%20Kota%20Depok%2C%20Jawa%20Barat%2016451!5e0!3m2!1sen!2sid!4v1234567890"
                                     width="100%"
                                     height="100%"
                                     style={{ border: 0 }}
@@ -169,8 +169,8 @@ export default function ContactPage() {
                             </div>
                             <div className="mt-4 text-gray-300">
                                 <p className="font-semibold mb-2">JAWS Custom Workshop</p>
-                                <p className="text-sm">Jl. Custom Motor No. 123</p>
-                                <p className="text-sm">Jakarta Selatan, DKI Jakarta 12345</p>
+                                <p className="text-sm">Jl. Kelurahan Jatijajar, Jatijajar</p>
+                                <p className="text-sm">Kec. Tapos, Kota Depok, Jawa Barat 16451</p>
                             </div>
                         </div>
                     </div>

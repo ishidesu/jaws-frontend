@@ -210,6 +210,56 @@ export async function loginUser(data: LoginData) {
           throw profileError
         }
 
+        // Check if user is suspended
+        if (profile.suspended) {
+          // Check if suspension has expired
+          if (profile.suspended_until) {
+            const suspendedUntil = new Date(profile.suspended_until);
+            const now = new Date();
+            
+            if (suspendedUntil > now) {
+              // Still suspended
+              const timeLeft = suspendedUntil.getTime() - now.getTime();
+              const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
+              const daysLeft = Math.floor(hoursLeft / 24);
+              
+              let suspendMessage = 'Your account is suspended';
+              if (daysLeft > 0) {
+                suspendMessage += ` for ${daysLeft} more day${daysLeft > 1 ? 's' : ''}`;
+              } else if (hoursLeft > 0) {
+                suspendMessage += ` for ${hoursLeft} more hour${hoursLeft > 1 ? 's' : ''}`;
+              } else {
+                const minutesLeft = Math.floor(timeLeft / (1000 * 60));
+                suspendMessage += ` for ${minutesLeft} more minute${minutesLeft > 1 ? 's' : ''}`;
+              }
+              suspendMessage += ` until ${suspendedUntil.toLocaleString('id-ID', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}`;
+              
+              // Sign out the user
+              await supabase.auth.signOut();
+              return { success: false, error: suspendMessage };
+            } else {
+              // Suspension expired, auto-unsuspend
+              await supabase
+                .from('profiles')
+                .update({ suspended: false, suspended_until: null })
+                .eq('id', profile.id);
+              
+              profile.suspended = false;
+              profile.suspended_until = null;
+            }
+          } else {
+            // Permanent suspension
+            await supabase.auth.signOut();
+            return { success: false, error: 'Your account has been permanently suspended. Please contact support.' };
+          }
+        }
+
         return { 
           success: true, 
           user: {
@@ -332,17 +382,15 @@ export async function registerUserSmart(data: RegisterData & { otp?: string }) {
 }
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    console.log('[getCurrentUser] Fetching session...')
-    
-    // Try cached user first for instant load
+    // Try cached user first for instant load - extended cache time
     if (typeof window !== 'undefined') {
       const cachedUser = localStorage.getItem('jaws-cached-user')
       const cacheTime = localStorage.getItem('jaws-cached-user-time')
       
       if (cachedUser && cacheTime) {
         const age = Date.now() - parseInt(cacheTime)
-        // Use cache if less than 5 minutes old
-        if (age < 5 * 60 * 1000) {
+        // Use cache if less than 30 minutes old (increased from 5 minutes)
+        if (age < 30 * 60 * 1000) {
           try {
             const parsed = JSON.parse(cachedUser)
             console.log('[getCurrentUser] Using cached user (age: ' + Math.round(age/1000) + 's):', parsed.username)
@@ -354,9 +402,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       }
     }
     
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    console.log('[getCurrentUser] Cache expired or missing, fetching fresh data...')
     
-    console.log('[getCurrentUser] Session result:', session ? 'Found' : 'None', sessionError ? `Error: ${sessionError.message}` : '')
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
     
     if (sessionError) {
       console.error('Session error:', sessionError)
@@ -373,8 +421,6 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     }
     
     const user = session.user
-    
-    console.log('[getCurrentUser] Fetching profile for user:', user.id)
 
     // Try to get profile from database
     try {
@@ -383,8 +429,6 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         .select('*')
         .eq('id', user.id)
         .single()
-
-      console.log('[getCurrentUser] Profile result:', profile ? 'Found' : 'None', profileError ? `Error: ${profileError.message}` : '')
 
       if (profileError) {
         if (profileError.code === 'PGRST116') {

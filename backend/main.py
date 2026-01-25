@@ -237,6 +237,7 @@ class ProductUpdate(BaseModel):
     stock: int
     vehicle_type: Optional[str] = None
     item_type: Optional[str] = None
+    image_url: Optional[str] = None
 
 @app.get("/")
 def read_root():
@@ -355,6 +356,8 @@ async def update_product(product_id: str, product_data: ProductUpdate, current_u
     """
     Update product menggunakan REST API untuk menghindari race condition
     Requires admin authentication via JWT
+    Handles image deletion when image_url changes
+    Preserves vehicle_type and item_type if not provided (category tidak bisa diedit)
     """
     try:
         print(f"Updating product {product_id} with data: {product_data.dict()}")
@@ -368,14 +371,50 @@ async def update_product(product_id: str, product_data: ProductUpdate, current_u
         if product_data.stock < 0:
             raise HTTPException(status_code=400, detail="Stock tidak boleh negatif")
         
-        response = supabase.table('products').update({
+        # Get old product data to preserve vehicle_type, item_type, and check image changes
+        old_product_response = supabase.table('products').select('image_url, vehicle_type, item_type').eq('id', product_id).execute()
+        old_image_url = None
+        old_vehicle_type = None
+        old_item_type = None
+        
+        if old_product_response.data and len(old_product_response.data) > 0:
+            old_product = old_product_response.data[0]
+            old_image_url = old_product.get('image_url')
+            old_vehicle_type = old_product.get('vehicle_type')
+            old_item_type = old_product.get('item_type')
+        
+        # Prepare update data
+        update_data = {
             'name': product_data.name.strip(),
             'price': product_data.price,
             'description': product_data.description.strip() if product_data.description else '',
             'stock': product_data.stock,
-            'vehicle_type': product_data.vehicle_type,
-            'item_type': product_data.item_type
-        }).eq('id', product_id).execute()
+            # Preserve old values if not provided (category tidak bisa diedit)
+            'vehicle_type': product_data.vehicle_type if product_data.vehicle_type is not None else old_vehicle_type,
+            'item_type': product_data.item_type if product_data.item_type is not None else old_item_type
+        }
+        
+        # Add image_url if provided
+        if product_data.image_url is not None:
+            update_data['image_url'] = product_data.image_url
+            
+            # Delete old image if it exists and is different from new one
+            if old_image_url and old_image_url != product_data.image_url:
+                try:
+                    # Extract filename from old URL
+                    old_filename = old_image_url.split('/')[-1]
+                    old_file_path = ASSETS_DIR / old_filename
+                    
+                    if old_file_path.exists():
+                        old_file_path.unlink()
+                        print(f"Deleted old image: {old_filename}")
+                    else:
+                        print(f"Old image file not found: {old_filename}")
+                except Exception as e:
+                    print(f"Error deleting old image: {str(e)}")
+                    # Continue with update even if deletion fails
+        
+        response = supabase.table('products').update(update_data).eq('id', product_id).execute()
         
         if response.data:
             print(f"Update successful: {response.data}")
@@ -392,6 +431,7 @@ async def update_product(product_id: str, product_data: ProductUpdate, current_u
     except Exception as e:
         print(f"Error updating product: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error updating product: {str(e)}")
+
 
 if __name__ == "__main__":
     server_port = int(os.environ.get("SERVER_PORT", 8000))
